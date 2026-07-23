@@ -1,0 +1,1855 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>פרמיות עובדים</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;800&display=swap');
+        body { font-family: 'Heebo', sans-serif; background-color: #f3f4f6; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+        /* Toasts */
+        #toast-container { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; flex-direction: column; gap: 0.5rem; width: 92%; max-width: 420px; pointer-events: none; }
+        .toast { pointer-events: auto; display: flex; align-items: center; gap: 0.6rem; padding: 0.85rem 1.1rem; border-radius: 0.9rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1); font-size: 0.85rem; font-weight: 600; animation: toast-in 0.25s ease-out; }
+        .toast.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+        .toast.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        .toast.info { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+        .toast.leaving { animation: toast-out 0.2s ease-in forwards; }
+        @keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(6px); } }
+
+        /* Dropzone */
+        #drop-zone.drag-active { background-color: #eff6ff !important; border-color: #3b82f6 !important; }
+
+        /* Row highlight after add/edit */
+        @keyframes row-flash { 0% { background-color: #d1fae5; } 100% { background-color: transparent; } }
+        .row-flash { animation: row-flash 1.4s ease-out; }
+
+        .required-mark::after { content: ' *'; color: #dc2626; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col text-right">
+    <!-- Login Modal (shown initially) -->
+    <div id="login-modal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div class="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-8 text-center">
+                <div class="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i data-lucide="lock" class="w-8 h-8 text-white"></i>
+                </div>
+                <h2 class="text-2xl font-bold">פרמיות עובדים</h2>
+                <p class="text-blue-100 text-sm mt-1">כניסה מאובטחת</p>
+            </div>
+            
+            <div class="p-8 space-y-4">
+                <div class="flex flex-col gap-2">
+                    <label class="text-sm font-bold text-gray-700">שם משתמש</label>
+                    <select id="login-username" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        <option value="USER" selected>USER — צפיה בלבד</option>
+                        <option value="ADMIN">ADMIN — עריכה מלאה</option>
+                    </select>
+                </div>
+                
+                <div class="flex flex-col gap-2">
+                    <label class="text-sm font-bold text-gray-700">סיסמה</label>
+                    <input type="password" id="login-password" placeholder="הקלד סיסמה" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" autocomplete="current-password">
+                </div>
+
+                <div id="login-error" class="hidden bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2">
+                    <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                    <span id="login-error-text">שם משתמש או סיסמה שגויים</span>
+                </div>
+
+                <button onclick="handleLogin()" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-4 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2">
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    כניסה
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-700 to-indigo-800 text-white shadow-lg py-6 px-8">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-white/10 p-2 rounded-lg"><i data-lucide="truck" class="w-8 h-8 text-blue-200"></i></div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-tight">פרמיות עובדים לשנת <span id="current-year-title"></span></h1>
+                    <p class="text-blue-100 text-sm mt-0.5">ניתוח גרפי, חישוב פרמיות וניהול משימות מקצה לקצה</p>
+                </div>
+            </div>
+            <div class="text-left text-xs text-blue-200 flex items-center gap-3">
+                <span>גרסה 3.3</span>
+                <div class="border-l border-blue-400 pl-3">
+                    <span id="user-display" class="font-bold">משתמש: USER</span>
+                    <button onclick="logout()" class="mr-3 px-3 py-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-100 text-xs font-bold transition-colors">התנתק</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-8 space-y-8">
+        <!-- Control Panel -->
+        <div id="drop-zone" class="bg-white rounded-2xl shadow-sm border-2 border-dashed border-gray-200 p-6 transition-colors">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div class="space-y-1.5 text-right">
+                    <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <i data-lucide="database" class="text-blue-600 w-5 h-5"></i>
+                        חיבור ישיר לקובץ מקומי
+                    </h2>
+                    <p class="text-gray-500 text-xs">
+                        בחר את קובץ האקסל, או גרור אותו לכאן. משימות יסונכרנו אוטומטית לעמודות 'פירוט' ולשונית 'זמני'.
+                    </p>
+                </div>
+                
+                <div class="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                    <input type="file" id="file-input-fallback" class="hidden" accept=".xlsx, .xls">
+                    
+                    <button id="picker-btn" onclick="selectLocalFile()" class="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 px-5 rounded-xl border border-gray-200 text-sm flex items-center justify-center gap-2 transition-all">
+                        <i data-lucide="folder-open" class="w-4 h-4 text-gray-500"></i>
+                        <span id="file-name-display">בחירת קובץ אקסל...</span>
+                    </button>
+
+                    <button id="change-file-btn" onclick="selectLocalFile()" class="hidden w-full sm:w-auto bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold py-2.5 px-5 rounded-xl border border-orange-200 text-sm flex items-center justify-center gap-2 transition-all">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        קובץ אחר
+                    </button>
+
+                    <button id="refresh-btn" onclick="refreshBackground()" class="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold py-2.5 px-6 rounded-xl shadow-md text-sm flex items-center justify-center gap-2 transition-all opacity-60 cursor-not-allowed" disabled title="רענון ידני זמין לאחר חיבור קובץ">
+                        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+                        רענן נתונים
+                    </button>
+                </div>
+            </div>
+            
+            <div id="status-bar" class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+                <div class="flex items-center gap-1.5" role="status" aria-live="polite">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500" id="status-dot"></span>
+                    <span id="status-text">המערכת מוכנה. חבר קובץ אקסל להתחלת סנכרון דו-כיווני.</span>
+                </div>
+                <span id="last-updated-text">עודכן לאחרונה: ברירת מחדל</span>
+            </div>
+        </div>
+
+        <!-- Empty State (shown until a file is loaded) -->
+        <div id="empty-state" class="bg-white rounded-2xl shadow-sm border border-dashed border-gray-200 p-12 flex flex-col items-center justify-center text-center gap-3">
+            <div class="bg-blue-50 text-blue-500 p-4 rounded-2xl"><i data-lucide="file-spreadsheet" class="w-8 h-8"></i></div>
+            <h3 class="text-gray-700 font-bold text-lg">אין עדיין נתונים להצגה</h3>
+            <p class="text-gray-400 text-sm max-w-sm">חברו קובץ אקסל למעלה כדי להציג דשבורד, גרפים והזנת משימות לעובדים.</p>
+        </div>
+
+        <!-- Add & Update Tasks UI Form Panel (ADMIN ONLY) -->
+        <div id="add-task-panel" class="hidden bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
+            <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <i data-lucide="plus-circle" class="text-emerald-600 w-5 h-5"></i>
+                הוספה ועדכון משימות לעובדים + שמירה לקובץ מקור
+            </h3>
+            <form id="add-task-form" onsubmit="handleManualTaskSubmit(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end mt-2">
+                <div class="flex flex-col gap-1 w-full">
+                    <label class="text-xs font-bold text-gray-700 required-mark">בחר עובד (עפ"י חסימות)</label>
+                    <select id="form-driver-select" required onchange="checkPermissionWarning()" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"></select>
+                </div>
+                <div class="flex flex-col gap-1 w-full">
+                    <label class="text-xs font-bold text-gray-700 required-mark">בחר משימה</label>
+                    <select id="form-task-select" onchange="checkTaskRateRequirement()" required class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"></select>
+                </div>
+                
+                <div id="dynamic-rate-box" class="hidden flex flex-col gap-1 w-full">
+                    <label class="text-xs font-bold text-red-600 animate-pulse">תעריף (₪)</label>
+                    <input type="number" id="form-task-custom-rate" value="0" step="0.5" placeholder="- / +" class="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none font-bold text-gray-800">
+                </div>
+
+                <div id="dynamic-note-box" class="flex flex-col gap-1 w-full">
+                    <label id="form-task-note-label" class="text-xs font-bold text-gray-700">הערה (אופציונלי)</label>
+                    <input type="text" id="form-task-note" placeholder="סיבת הפרמיה..." class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium text-gray-800 w-full">
+                </div>
+
+                <div class="flex flex-col gap-1 w-full">
+                    <label class="text-xs font-bold text-gray-700 required-mark">כמות</label>
+                    <input type="number" id="form-task-qty" required min="1" value="1" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium w-full">
+                </div>
+                <div class="flex flex-col gap-1 w-full">
+                    <label class="text-xs font-bold text-gray-700 required-mark">תאריך</label>
+                    <input type="date" id="form-task-date" required class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium text-gray-700 w-full">
+                </div>
+                <div class="w-full lg:col-span-6 sm:col-span-2 flex flex-col gap-2">
+                    <div id="form-permission-warning" class="hidden items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-2 rounded-lg">
+                        <i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>
+                        <span id="form-permission-warning-text">העובד לא זכאי לפרמיה מסוג זה</span>
+                    </div>
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-lg text-sm flex items-center justify-center gap-1.5 transition-all shadow-sm">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        עדכן ושמור
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Dashboard Output -->
+        <div id="dashboard" class="hidden space-y-8">
+            <!-- Filters Section -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 items-start justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="bg-blue-50 text-blue-600 p-3 rounded-xl"><i data-lucide="sliders-horizontal" class="w-6 h-6"></i></div>
+                    <div>
+                        <h4 class="font-bold text-gray-800 text-lg">סינון ובקרת תצוגה</h4>
+                        <p class="text-xs text-gray-400 mt-0.5">חיתוך מותאם אישית לפי חודש ועובד</p>
+                    </div>
+                </div>
+                <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto flex-grow justify-end">
+                    <!-- Months Filter -->
+                    <div class="flex flex-col gap-1 w-full sm:w-56 relative">
+                        <span class="text-xs text-gray-500 font-bold">בחירת חודש/ים:</span>
+                        <button type="button" onclick="toggleMonthDropdown(event)" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm font-medium text-gray-700 flex justify-between items-center shadow-sm hover:bg-gray-100">
+                            <span id="month-dropdown-label" class="truncate">כל החודשים</span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0 mr-2"></i>
+                        </button>
+                        <div id="month-dropdown-content" class="hidden absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto p-2 space-y-1 custom-scrollbar"></div>
+                    </div>
+                    
+                    <!-- Drivers Filter -->
+                    <div class="flex flex-col gap-1 w-full sm:w-56 relative">
+                        <span class="text-xs text-gray-500 font-bold">בחירת עובד:</span>
+                        <button type="button" onclick="togglePickerDropdown(event)" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm font-medium text-gray-700 flex justify-between items-center shadow-sm hover:bg-gray-100">
+                            <span id="picker-dropdown-label" class="truncate">כל העובדים</span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0 mr-2"></i>
+                        </button>
+                        <div id="picker-dropdown-content" class="hidden absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto p-2 space-y-1 custom-scrollbar"></div>
+                    </div>
+                </div>
+                <button onclick="clearAllFilters()" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-4 py-2 rounded-lg mt-5 md:mt-6 transition-colors shadow-sm whitespace-nowrap">נקה סינונים</button>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">פרמיה מצטברת</p>
+                        <h3 id="stat-total-payout" class="text-2xl font-extrabold text-gray-800 mt-1 tabular-nums">₪0</h3>
+                    </div>
+                    <div class="bg-green-50 p-3 rounded-xl text-green-600 flex-shrink-0"><i data-lucide="circle-dollar-sign" class="w-6 h-6"></i></div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">משימות שבוצעו</p>
+                        <h3 id="stat-total-tasks" class="text-2xl font-extrabold text-gray-800 mt-1 tabular-nums">0</h3>
+                    </div>
+                    <div class="bg-blue-50 p-3 rounded-xl text-blue-600 flex-shrink-0"><i data-lucide="clipboard-check" class="w-6 h-6"></i></div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">עובדים פעילים</p>
+                        <h3 id="stat-total-employees" class="text-2xl font-extrabold text-gray-800 mt-1 tabular-nums">0</h3>
+                    </div>
+                    <div class="bg-indigo-50 p-3 rounded-xl text-indigo-600 flex-shrink-0"><i data-lucide="users" class="w-6 h-6"></i></div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">ממוצע לנהג</p>
+                        <h3 id="stat-avg-payout" class="text-2xl font-extrabold text-gray-800 mt-1 tabular-nums">₪0</h3>
+                    </div>
+                    <div class="bg-purple-50 p-3 rounded-xl text-purple-600 flex-shrink-0"><i data-lucide="trending-up" class="w-6 h-6"></i></div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Monthly Trend Chart - Bar -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 lg:col-span-3">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <i data-lucide="bar-chart-2" class="w-5 h-5 text-purple-600"></i>
+                            ניתוח מגמות חודשיות
+                        </h3>
+                        <div class="flex gap-2 text-xs">
+                            <button id="chart-monthly-bar-btn" onclick="setMonthlyChartType('bar')" class="px-3 py-1 rounded-lg bg-purple-600 text-white font-bold transition-colors">עמודות</button>
+                            <button id="chart-monthly-line-btn" onclick="setMonthlyChartType('line')" class="px-3 py-1 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">קו</button>
+                        </div>
+                    </div>
+                    <div class="relative h-64"><canvas id="chart-months-compare"></canvas></div>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 lg:col-span-2">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <i data-lucide="bar-chart-big" class="w-5 h-5 text-blue-600"></i>
+                        פרמיות וביצועים לפי עובד
+                    </h3>
+                    <div class="relative h-72"><canvas id="chart-employees"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 lg:col-span-1">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <i data-lucide="pie-chart" class="w-5 h-5 text-indigo-600"></i>
+                        פילוח משימות
+                    </h3>
+                    <div class="relative h-72"><canvas id="chart-tasks"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Details Card -->
+            <div id="driver-premium-card" class="hidden bg-gradient-to-br from-blue-50/60 to-white rounded-2xl shadow-sm border border-blue-200 p-6 space-y-4">
+                <div class="flex justify-between items-center border-b border-blue-100 pb-3">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-blue-600 text-white p-2.5 rounded-xl"><i data-lucide="user-check" class="w-6 h-6"></i></div>
+                        <div>
+                            <h3 id="card-driver-title" class="text-lg font-bold text-gray-800">פירוט פרמיות</h3>
+                            <p id="card-driver-subtitle" class="text-xs text-gray-500 font-medium">מספר עובד: -</p>
+                        </div>
+                    </div>
+                    <button onclick="clearEmployeeFilterOnly()" class="flex items-center gap-1.5 bg-white hover:bg-gray-100 text-gray-600 font-bold px-3 py-1.5 text-sm rounded-xl transition-all shadow-sm border border-gray-200">
+                        <i data-lucide="x" class="w-4 h-4"></i> סגור
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-3 gap-4 text-sm">
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center text-center gap-1">
+                        <span class="text-gray-400 text-xs font-bold">פרמיה בתקופה</span>
+                        <span id="card-driver-premium" class="text-2xl font-extrabold text-green-600 tabular-nums">₪0</span>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center text-center gap-1">
+                        <span class="text-gray-400 text-xs font-bold">כמות משימות</span>
+                        <span id="card-driver-tasks" class="text-2xl font-extrabold text-blue-600 tabular-nums">0</span>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center text-center gap-1">
+                        <span class="text-gray-400 text-xs font-bold">סוגי משימות</span>
+                        <span id="card-driver-uniq" class="text-2xl font-extrabold text-indigo-600 tabular-nums">0</span>
+                    </div>
+                </div>
+                
+                <div class="overflow-x-auto bg-white rounded-xl border border-gray-100 shadow-sm">
+                    <table class="w-full text-right text-sm">
+                        <thead class="bg-blue-50/60 text-gray-700 font-bold border-b border-blue-100">
+                            <tr>
+                                <th class="px-5 py-3">משימה</th>
+                                <th class="px-5 py-3">תעריף / הערה</th>
+                                <th class="px-5 py-3">כמות</th>
+                                <th class="px-5 py-3">סה"כ (₪)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="card-driver-rows" class="divide-y divide-gray-50 text-gray-600 font-medium"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tables Section -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="border-b border-gray-100 bg-gray-50/50 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <div class="flex gap-2 items-center">
+                        <button id="tab-btn-employees" class="px-4 py-2 text-sm font-bold rounded-lg bg-blue-600 text-white shadow-sm">סיכום עובדים</button>
+                        <button id="tab-btn-tasks" class="px-4 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">סיכום משימות</button>
+                        <button id="tab-btn-raw" class="px-4 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">פירוט יומיומי</button>
+                        <span id="table-row-count" class="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full"></span>
+                    </div>
+                    
+                    <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                        <button id="export-excel-btn" onclick="exportDriversSummaryToExcel()" class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2 px-4 rounded-lg text-xs flex items-center gap-1.5 transition-all shadow-sm">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                            ייצא לאקסל
+                        </button>
+
+                        <div class="relative w-full sm:w-60">
+                            <input type="text" id="table-search" placeholder="חיפוש בטבלה..." class="w-full pl-9 pr-4 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" dir="rtl">
+                            <i data-lucide="search" class="w-4 h-4 text-gray-400 absolute left-3 top-2.5"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto" style="max-height:560px; overflow-y:auto;">
+                    <table class="w-full text-right text-sm">
+                        <thead class="bg-gray-50 text-gray-600 font-semibold sticky top-0 z-10 border-b border-gray-100"><tr id="table-header"></tr></thead>
+                        <tbody id="table-body" class="divide-y divide-gray-50 text-gray-600"></tbody>
+                    </table>
+                    <div id="table-empty-state" class="hidden py-16 flex flex-col items-center gap-2 text-gray-400">
+                        <i data-lucide="inbox" class="w-8 h-8 text-gray-300"></i>
+                        <p class="text-sm font-medium">אין נתונים התואמים את הסינון הנוכחי</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-gray-900 text-gray-500 py-5 text-center text-xs mt-12">
+        <div class="flex items-center justify-center gap-3">
+            <span>פרמיות עובדים © <span id="footer-year"></span></span>
+            <span class="w-1 h-1 bg-gray-600 rounded-full"></span>
+            <span class="bg-gray-800 text-gray-400 font-mono px-2 py-0.5 rounded-md text-xs">v3.3</span>
+            <span class="w-1 h-1 bg-gray-600 rounded-full"></span>
+            <span>פותח לניתוח מהיר וסנכרון מלא לקובץ מקור</span>
+        </div>
+    </footer>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" aria-live="polite"></div>
+
+    <!-- Duplicate Tasks Modal -->
+    <div id="dup-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-amber-500 p-4 text-white flex justify-between items-center flex-shrink-0">
+                <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="alert-triangle" class="w-5 h-5"></i> משימות חריגות - כפילויות ביום</h3>
+                <button onclick="closeDupModal()" class="hover:bg-amber-600 p-1.5 rounded-lg transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <p class="text-xs text-gray-500 px-5 pt-3">הרשימה להלן מציגה משימות בעלות אותו שם שבוצעו על ידי אותו עובד באותו יום. ניתן לסמן ולמחוק.</p>
+            <div class="overflow-y-auto flex-grow custom-scrollbar px-5 py-3" id="dup-modal-list"></div>
+            <div class="bg-gray-50 p-4 border-t border-gray-100 flex justify-between items-center gap-3 flex-shrink-0">
+                <span id="dup-selected-count" class="text-xs font-bold text-gray-500">0 נבחרו</span>
+                <div class="flex gap-2">
+                    <button onclick="closeDupModal()" class="px-4 py-2 text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50">סגור</button>
+                    <button onclick="deleteSelectedDups()" class="px-5 py-2 text-sm font-bold text-white bg-red-600 rounded-lg shadow-sm hover:bg-red-700 flex items-center gap-2 disabled:opacity-40" id="dup-delete-btn" disabled>
+                        <i data-lucide="trash-2" class="w-4 h-4"></i> מחק נבחרים
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic Confirm Modal -->
+    <div id="confirm-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div class="p-6 space-y-3 text-center">
+                <div class="mx-auto bg-red-50 text-red-500 p-3 rounded-full w-fit"><i data-lucide="alert-triangle" class="w-6 h-6"></i></div>
+                <p id="confirm-modal-text" class="text-sm font-bold text-gray-700"></p>
+            </div>
+            <div class="bg-gray-50 p-4 border-t border-gray-100 flex justify-center gap-3">
+                <button id="confirm-modal-cancel" class="px-5 py-2 text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50">ביטול</button>
+                <button id="confirm-modal-ok" class="px-5 py-2 text-sm font-bold text-white bg-red-600 rounded-lg shadow-sm hover:bg-red-700">אישור מחיקה</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Row Modal -->
+    <div id="edit-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="bg-blue-600 p-4 text-white flex justify-between items-center">
+                <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="edit" class="w-5 h-5"></i> עריכת משימה יומיומית</h3>
+                <button onclick="closeEditModal()" class="hover:bg-blue-700 p-1.5 rounded-lg transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="edit-id">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-bold text-gray-700">עובד:</label>
+                        <input type="text" id="edit-driver" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-blue-500 focus:outline-none" readonly>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-bold text-gray-700">תאריך:</label>
+                        <input type="date" id="edit-date" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-blue-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-bold text-gray-700">משימה:</label>
+                    <input type="text" id="edit-task" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-blue-500 focus:outline-none" readonly>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-bold text-gray-700">כמות:</label>
+                        <input type="number" id="edit-qty" min="1" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-blue-500 focus:outline-none">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-bold text-gray-700">תעריף (₪):</label>
+                        <input type="number" id="edit-rate" step="0.5" class="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-sm focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-bold text-gray-700">הערה:</label>
+                    <input type="text" id="edit-note" class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-blue-500 focus:outline-none">
+                </div>
+            </div>
+            <div class="bg-gray-50 p-4 border-t border-gray-100 flex justify-end gap-3">
+                <button onclick="closeEditModal()" class="px-4 py-2 text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50">ביטול</button>
+                <button onclick="saveEditedRow()" class="px-5 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> שמור שינויים</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const currentYear = new Date().getFullYear();
+            document.getElementById('current-year-title').textContent = currentYear;
+            document.getElementById('footer-year').textContent = currentYear;
+            document.getElementById('form-task-date').valueAsDate = new Date();
+        });
+
+        const fileInputFallback = document.getElementById('file-input-fallback');
+        const pickerDropdownContent = document.getElementById('picker-dropdown-content');
+        const pickerDropdownLabel = document.getElementById('picker-dropdown-label');
+        const monthDropdownContent = document.getElementById('month-dropdown-content');
+        const monthDropdownLabel = document.getElementById('month-dropdown-label');
+        const formDriverSelect = document.getElementById('form-driver-select');
+        const formTaskSelect = document.getElementById('form-task-select');
+        const dynamicRateBox = document.getElementById('dynamic-rate-box');
+        const formTaskNote = document.getElementById('form-task-note');
+        const formTaskNoteLabel = document.getElementById('form-task-note-label');
+        const formTaskCustomRate = document.getElementById('form-task-custom-rate');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const lastUpdatedText = document.getElementById('last-updated-text');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.getElementById('status-dot');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const exportExcelBtn = document.getElementById('export-excel-btn');
+        const editModal = document.getElementById('edit-modal');
+        const dropZone = document.getElementById('drop-zone');
+        const emptyState = document.getElementById('empty-state');
+        const addTaskPanel = document.getElementById('add-task-panel');
+        const dashboardEl = document.getElementById('dashboard');
+        const toastContainer = document.getElementById('toast-container');
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmModalText = document.getElementById('confirm-modal-text');
+        const confirmModalOk = document.getElementById('confirm-modal-ok');
+        const confirmModalCancel = document.getElementById('confirm-modal-cancel');
+
+        // ---- Toast notifications ----
+        function showToast(message, type = 'info', duration = 4000) {
+            const icons = { success: 'check-circle', error: 'x-circle', info: 'info' };
+            const el = document.createElement('div');
+            el.className = `toast ${type}`;
+            el.innerHTML = `<i data-lucide="${icons[type] || 'info'}" class="w-4 h-4 flex-shrink-0"></i><span>${message}</span>`;
+            toastContainer.appendChild(el);
+            lucide.createIcons();
+            setTimeout(() => {
+                el.classList.add('leaving');
+                setTimeout(() => el.remove(), 220);
+            }, duration);
+        }
+
+        // ---- Custom confirm modal (Promise-based, replaces window.confirm) ----
+        function showConfirm(message) {
+            return new Promise((resolve) => {
+                confirmModalText.textContent = message;
+                confirmModal.classList.remove('hidden');
+                const cleanup = (result) => {
+                    confirmModal.classList.add('hidden');
+                    confirmModalOk.removeEventListener('click', onOk);
+                    confirmModalCancel.removeEventListener('click', onCancel);
+                    resolve(result);
+                };
+                const onOk = () => cleanup(true);
+                const onCancel = () => cleanup(false);
+                confirmModalOk.addEventListener('click', onOk);
+                confirmModalCancel.addEventListener('click', onCancel);
+            });
+        }
+
+        function revealDashboard() {
+            emptyState.classList.add('hidden');
+            
+            // הצג את כפתור "קובץ אחר" והסתר את "בחירת קובץ אקסל..." אם יש קובץ מחובר
+            if (globalFileHandle) {
+                document.getElementById('picker-btn').classList.add('hidden');
+                document.getElementById('change-file-btn').classList.remove('hidden');
+            } else {
+                document.getElementById('picker-btn').classList.remove('hidden');
+                document.getElementById('change-file-btn').classList.add('hidden');
+            }
+            
+            // הצג פאנל עריכה רק ל-ADMIN
+            if (isAdmin()) {
+                addTaskPanel.classList.remove('hidden');
+            } else {
+                addTaskPanel.classList.add('hidden');
+            }
+            
+            dashboardEl.classList.remove('hidden');
+        }
+
+        function flashRow(id) {
+            requestAnimationFrame(() => {
+                const row = document.querySelector(`[data-row-id="${id}"]`);
+                if (row) { row.classList.add('row-flash'); setTimeout(() => row.classList.remove('row-flash'), 1500); }
+            });
+        }
+
+        // ---- Drag & drop support for the Excel file ----
+        ['dragenter', 'dragover'].forEach(evt => {
+            dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag-active'); });
+        });
+        ['dragleave', 'drop'].forEach(evt => {
+            dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('drag-active'); });
+        });
+        dropZone.addEventListener('drop', (e) => {
+            const file = e.dataTransfer?.files?.[0];
+            if (!file) return;
+            if (!/\.(xlsx|xls)$/i.test(file.name)) { showToast('ניתן לגרור רק קובצי אקסל (.xlsx / .xls)', 'error'); return; }
+            fileNameDisplay.textContent = file.name;
+            globalFileHandle = file;
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+            parseAndProcessFile(file);
+        });
+
+        let rawData = [];
+        let taskRates = {}; 
+        let employeeNumbers = {};
+        let taskPermissions = {}; 
+        let availableMonths = [];
+        let allowedFormDrivers = new Set();
+        
+        // LOGIN & PERMISSIONS
+        let currentUser = null; 
+        const USER_PASSWORD = '1234';
+        const ADMIN_PASSWORD = 'K2120';
+
+        function handleLogin() {
+            const username = document.getElementById('login-username').value.toUpperCase();
+            const password = document.getElementById('login-password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            let correctPassword = username === 'ADMIN' ? ADMIN_PASSWORD : USER_PASSWORD;
+            
+            if (password !== correctPassword) {
+                errorDiv.classList.remove('hidden');
+                document.getElementById('login-error-text').textContent = 'סיסמה שגויה';
+                return;
+            }
+
+            currentUser = { username, role: username };
+            document.getElementById('login-modal').classList.add('hidden');
+            document.getElementById('user-display').textContent = `משתמש: ${currentUser.role}`;
+            
+            loadFileFromStorage().then((fileLoaded) => {
+                if (!fileLoaded) {
+                    revealDashboard();
+                }
+            });
+            
+            showToast(`ברוך הבא, ${currentUser.role}! 🎉`, 'success');
+        }
+
+        function logout() {
+            if (confirm('האם אתה בטוח שברצונך להתנתק?')) {
+                currentUser = null;
+                document.getElementById('login-modal').classList.remove('hidden');
+                document.getElementById('login-username').value = '';
+                document.getElementById('login-password').value = '';
+                document.getElementById('login-error').classList.add('hidden');
+                showToast('התנתקת בהצלחה', 'info');
+            }
+        }
+
+        function isAdmin() { return currentUser && currentUser.role === 'ADMIN'; }
+        function isUser() { return currentUser !== null; }
+
+        function checkEditPermission() {
+            if (!isAdmin()) {
+                showToast('הרשאה: רק ADMIN יכול לערוך נתונים', 'error');
+                return false;
+            }
+            return true;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('login-password')?.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleLogin();
+            });
+        });
+        
+        let originalFullWorkbook = null; 
+        let activeTab = 'employees';
+        let chartEmployeesInstance = null;
+        let chartTasksInstance = null;
+        let chartMonthsCompareInstance = null;
+        let monthlyChartType = 'bar'; 
+        let globalFileHandle = null;
+        let lastRenderArgs = null; 
+        
+        let selectedDrivers = [];
+        let selectedMonths = []; 
+        
+        let targetDetailSheetName = "פירוט";
+        let targetTaskSheetName = "משימות";
+        let targetTemporarySheetName = "זמני";
+        let targetBlocksSheetName = "חסימות";
+
+        const hebrewMonths = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
+
+        function formatDateToDDMMYYYY(d) {
+            if (!d || isNaN(d.getTime())) return "";
+            let day = String(d.getDate()).padStart(2, '0');
+            let month = String(d.getMonth() + 1).padStart(2, '0');
+            let year = d.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
+        function parseExcelDate(dVal) {
+            if (dVal === null || dVal === undefined || dVal === "") return null;
+
+            if (Object.prototype.toString.call(dVal) === '[object Date]') {
+                if (!isNaN(dVal.getTime())) {
+                    return new Date(dVal.getFullYear(), dVal.getMonth(), dVal.getDate());
+                }
+                return null;
+            }
+
+            if (typeof dVal === 'number' && Number.isFinite(dVal) && dVal > 0) {
+                const msUtc = Math.round((dVal - 25569) * 86400000);
+                const tmp = new Date(msUtc);
+                if (!isNaN(tmp.getTime())) {
+                    return new Date(tmp.getUTCFullYear(), tmp.getUTCMonth(), tmp.getUTCDate());
+                }
+                return null;
+            }
+
+            if (typeof dVal === 'string') {
+                const s = dVal.trim();
+                const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (isoMatch) {
+                    const d = new Date(+isoMatch[1], +isoMatch[2] - 1, +isoMatch[3]);
+                    if (!isNaN(d.getTime())) return d;
+                }
+
+                const parts = s.replace(/\./g, '/').replace(/-/g, '/').split('/');
+                if (parts.length === 3) {
+                    const p = parts.map(x => parseInt(x, 10));
+                    if (p.every(x => !isNaN(x))) {
+                        let year, month, day;
+                        if (p[2] > 31) {        
+                            year = p[2]; month = p[1] - 1; day = p[0];
+                        } else if (p[0] > 31) { 
+                            year = p[0]; month = p[1] - 1; day = p[2];
+                        } else {                 
+                            year = p[2] < 100 ? p[2] + 2000 : p[2];
+                            month = p[1] - 1; day = p[0];
+                        }
+                        const d = new Date(year, month, day);
+                        if (!isNaN(d.getTime())) return d;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function getCustomMonth(dObj) {
+            if (!dObj || isNaN(dObj.getTime())) return null;
+            let m = dObj.getMonth();   
+            let y = dObj.getFullYear();
+            const day = dObj.getDate();
+            if (day >= 25) {           
+                m += 1;
+                if (m > 11) { m = 0; y += 1; }
+            }
+            return {
+                label: `${hebrewMonths[m]} ${y}`,
+                sortKey: y * 100 + m,
+                monthIndex: m,
+                year: y
+            };
+        }
+
+        window.togglePickerDropdown = function(e) { e.stopPropagation(); pickerDropdownContent.classList.toggle('hidden'); monthDropdownContent.classList.add('hidden'); }
+        window.toggleMonthDropdown = function(e) { e.stopPropagation(); monthDropdownContent.classList.toggle('hidden'); pickerDropdownContent.classList.add('hidden'); }
+        document.addEventListener('click', () => { pickerDropdownContent.classList.add('hidden'); monthDropdownContent.classList.add('hidden'); });
+
+        function checkPermissionWarning() {
+            const dName = formDriverSelect.value;
+            const tName = formTaskSelect.value;
+            const warningEl = document.getElementById('form-permission-warning');
+            if (!dName || !tName || Object.keys(taskPermissions).length === 0) {
+                warningEl.classList.add('hidden'); warningEl.classList.remove('flex'); return;
+            }
+            const allowed = taskPermissions[dName] && taskPermissions[dName][tName];
+            if (!allowed) {
+                document.getElementById('form-permission-warning-text').textContent = `"${dName}" לא זכאי לפרמיה מסוג "${tName}"`;
+                warningEl.classList.remove('hidden'); warningEl.classList.add('flex');
+            } else {
+                warningEl.classList.add('hidden'); warningEl.classList.remove('flex');
+            }
+        }
+
+        window.checkTaskRateRequirement = function() {
+            let selectedTask = formTaskSelect.value;
+            let currentRate = taskRates[selectedTask];
+            checkPermissionWarning();
+            
+            if (currentRate === undefined || currentRate === null || currentRate === 0) {
+                dynamicRateBox.classList.remove('hidden');
+                formTaskNoteLabel.textContent = "הערת חובה:";
+                formTaskNoteLabel.className = "text-xs font-bold text-red-600 animate-pulse";
+                formTaskNote.classList.remove('bg-gray-50', 'border-gray-200');
+                formTaskNote.classList.add('bg-amber-50', 'border-amber-300');
+            } else {
+                dynamicRateBox.classList.add('hidden');
+                formTaskNoteLabel.textContent = "הערה (אופציונלי):";
+                formTaskNoteLabel.className = "text-xs font-bold text-gray-700";
+                formTaskNote.classList.remove('bg-amber-50', 'border-amber-300');
+                formTaskNote.classList.add('bg-gray-50', 'border-gray-200');
+            }
+        }
+
+        window.selectLocalFile = async function() {
+            if ('showOpenFilePicker' in window) {
+                try {
+                    const [handle] = await window.showOpenFilePicker({
+                        mode: 'readwrite',
+                        types: [{ description: 'Excel Files', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
+                        multiple: false
+                    });
+                    globalFileHandle = handle;
+                    fileNameDisplay.textContent = handle.name;
+                    refreshBtn.disabled = false;
+                    refreshBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+                    const file = await handle.getFile();
+                    parseAndProcessFile(file);
+                } catch (err) { runFallbackPicker(); }
+            } else { runFallbackPicker(); }
+        }
+
+        function runFallbackPicker() { fileInputFallback.value = ''; fileInputFallback.click(); }
+        fileInputFallback.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                fileNameDisplay.textContent = file.name;
+                globalFileHandle = file; 
+                refreshBtn.disabled = false;
+                refreshBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+                parseAndProcessFile(file);
+            }
+        });
+
+        window.refreshBackground = async function() {
+            if (!globalFileHandle) return;
+            try {
+                if (globalFileHandle.getFile) {
+                    const file = await globalFileHandle.getFile();
+                    parseAndProcessFile(file);
+                } else { runFallbackPicker(); }
+            } catch (error) { runFallbackPicker(); }
+        }
+
+        function getResilientValue(row, possibleKeys) {
+            for (let k of Object.keys(row)) {
+                let lowerK = k.toLowerCase().trim();
+                if (possibleKeys.some(pk => lowerK.includes(pk))) return row[k];
+            }
+            return null;
+        }
+
+        const STORAGE_KEY = 'lastLoadedFileData';
+        const FILENAME_KEY = 'lastLoadedFileName';
+
+        function saveFileToStorage(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, e.target.result); 
+                    localStorage.setItem(FILENAME_KEY, file.name);
+                } catch (err) {
+                    console.warn('לא ניתן לשמור לאחסון מקומי:', err);
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function loadFileFromStorage() {
+            try {
+                const base64Data = localStorage.getItem(STORAGE_KEY);
+                const fileName = localStorage.getItem(FILENAME_KEY) || 'קובץ אחרון';
+                if (!base64Data) return false;
+
+                const binaryString = atob(base64Data.split(',')[1]);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                
+                const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                fileNameDisplay.textContent = fileName;
+                globalFileHandle = blob;
+                refreshBtn.disabled = false;
+                refreshBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+                parseAndProcessFile(blob);
+                return true;
+            } catch (err) {
+                console.warn('שגיאה בטעינה מאחסון:', err);
+                return false;
+            }
+        }
+
+        function parseAndProcessFile(file) {
+            statusText.textContent = "מעבד את הקובץ...";
+            statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse";
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    originalFullWorkbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
+                    
+                    if (file instanceof File || file instanceof Blob) {
+                        saveFileToStorage(file);
+                    }
+                    
+                    targetDetailSheetName = originalFullWorkbook.SheetNames.find(n => n.includes('פירוט') || n.toLowerCase().includes('detail') || n.includes('נתונים')) || originalFullWorkbook.SheetNames[0];
+                    let rows = XLSX.utils.sheet_to_json(originalFullWorkbook.Sheets[targetDetailSheetName], { defval: "" });
+
+                    let tName = originalFullWorkbook.SheetNames.find(n => n.includes('משימות') || n.toLowerCase().includes('task'));
+                    if (tName) targetTaskSheetName = tName;
+                    
+                    let employeeSheetName = originalFullWorkbook.SheetNames.find(n => n.includes('עובדים') || n.toLowerCase().includes('employee'));
+                    
+                    taskPermissions = {};
+                    allowedFormDrivers.clear();
+                    let blocksSheetName = originalFullWorkbook.SheetNames.find(n => n.includes(targetBlocksSheetName) || n.toLowerCase().includes('block'));
+                    if (blocksSheetName) {
+                        let blocksRows = XLSX.utils.sheet_to_json(originalFullWorkbook.Sheets[blocksSheetName], { defval: "" });
+                        blocksRows.forEach(row => {
+                            let rowKeys = Object.keys(row);
+                            if (rowKeys.length === 0) return;
+                            let mainKey = String(row[rowKeys[0]]).trim();
+                            if (mainKey) allowedFormDrivers.add(mainKey);
+                            
+                            rowKeys.slice(1).forEach(col => {
+                                let val = String(row[col]).trim();
+                                if (val === 'כן' || val === 'yes' || val === '1' || val.toLowerCase() === 'v') {
+                                    let colTrim = String(col).trim();
+                                    if (!taskPermissions[mainKey]) taskPermissions[mainKey] = {};
+                                    taskPermissions[mainKey][colTrim] = true;
+                                    if (!taskPermissions[colTrim]) taskPermissions[colTrim] = {};
+                                    taskPermissions[colTrim][mainKey] = true;
+                                }
+                            });
+                        });
+                    }
+
+                    taskRates = {};
+                    if (targetTaskSheetName) {
+                        XLSX.utils.sheet_to_json(originalFullWorkbook.Sheets[targetTaskSheetName]).forEach(r => {
+                            let k = getResilientValue(r, ['משימה', 'task', 'שם']);
+                            let v = getResilientValue(r, ['תעריף', 'מחיר', 'עלות', 'rate', 'price']);
+                            if (k !== null) {
+                                let normalizedKey = String(k).trim();
+                                taskRates[normalizedKey] = v !== null ? (parseFloat(String(v).replace(/[^0-9.-]/g, '')) || 0) : 0; 
+                            }
+                        });
+                    }
+
+                    let validTempTasks = [];
+                    let tempSheetName = originalFullWorkbook.SheetNames.find(n => n === targetTemporarySheetName);
+                    if (tempSheetName) {
+                        let tempRows = XLSX.utils.sheet_to_json(originalFullWorkbook.Sheets[tempSheetName], { defval: "" });
+                        tempRows.forEach(tr => {
+                            let tsk = getResilientValue(tr, ['משימה', 'task', 'שם']);
+                            let rate = getResilientValue(tr, ['תעריף', 'מחיר', 'עלות', 'rate', 'price']);
+                            let emp = getResilientValue(tr, ['עובד', 'employee']);
+                            let dt = getResilientValue(tr, ['תאריך', 'date', 'יום']);
+                            let note = getResilientValue(tr, ['הערה', 'note', 'פירוט']);
+                            
+                            if (tsk !== null && rate !== null && emp !== null && dt !== null) {
+                                let parsedDate = parseExcelDate(dt);
+                                let dStr = parsedDate ? formatDateToDDMMYYYY(parsedDate) : String(dt);
+                                validTempTasks.push({
+                                    emp: String(emp).trim(), tsk: String(tsk).trim(), date: dStr, note: note ? String(note).trim() : "",
+                                    rate: parseFloat(String(rate).replace(/[^0-9.-]/g, '')) || 0
+                                });
+                            }
+                        });
+                    }
+
+                    employeeNumbers = {};
+                    if (employeeSheetName) {
+                        XLSX.utils.sheet_to_json(originalFullWorkbook.Sheets[employeeSheetName]).forEach(r => {
+                            let k = r['עובד'] || r['שם עובד'] || r['שם'] || getResilientValue(r, ['עובד', 'שם', 'employee']);
+                            let v = r['מספר עובד'] || r['מספר'] || r['מזהה'] || getResilientValue(r, ['מספר', 'id', 'code']);
+                            if (k && v) employeeNumbers[String(k).trim()] = String(v).trim();
+                        });
+                    }
+
+                    rawData = rows.map(r => {
+                        let emp = getResilientValue(r, ['עובד', 'employee', 'נהג', 'שם']);
+                        let tsk = getResilientValue(r, ['משימה', 'task', 'סוג']);
+                        let qty = getResilientValue(r, ['כמות', 'amount', 'qty', 'מספר']);
+                        let dt = getResilientValue(r, ['תאריך', 'date', 'יום']);
+                        let note = getResilientValue(r, ['הערה', 'note', 'פירוט']);
+                        let savedRate = getResilientValue(r, ['תעריף', 'rate', 'מחיר', 'עלות']);
+                        
+                        let values = Object.values(r);
+                        if (!emp) emp = values[0];
+                        if (!tsk) tsk = values[1] || "";
+                        if (qty === null || qty === undefined) qty = values[2];
+                        if (dt === null || dt === undefined) dt = values[3] || "";
+
+                        let parsedDate = parseExcelDate(dt);
+                        let displayDate = "";
+                        
+                        if (parsedDate) {
+                            displayDate = formatDateToDDMMYYYY(parsedDate);
+                        } else {
+                            displayDate = String(dt || "");
+                            parsedDate = new Date(); 
+                        }
+
+                        return {
+                            "_id": Math.random().toString(36).substr(2, 9),
+                            "עובד": emp ? String(emp).trim() : "",
+                            "משימה": tsk ? String(tsk).trim() : "",
+                            "כמות": parseFloat(qty) || 1,
+                            "תאריך": displayDate,
+                            "_dateOriginalStr": displayDate, 
+                            "_parsedDate": parsedDate,
+                            "הערה": note ? String(note).trim() : "",
+                            "_savedRate": (savedRate !== null && savedRate !== "") ? parseFloat(String(savedRate).replace(/[^0-9.-]/g, '')) : null
+                        };
+                    }).filter(r => {
+                        if (r["עובד"] === "" || r["משימה"] === "") return false;
+                        
+                        let tName = r["משימה"];
+                        r._isUnpriced = (taskRates[tName] === undefined || taskRates[tName] === 0);
+                        
+                        if (r._savedRate !== null && !isNaN(r._savedRate)) {
+                            r._rate = r._savedRate;
+                        } else if (r._isUnpriced) {
+                            let matchIndex = validTempTasks.findIndex(vt => vt.emp === r["עובד"] && vt.tsk === tName && vt.date === r["תאריך"] && vt.note === r["הערה"]);
+                            if (matchIndex === -1) return false; 
+                            r._rate = validTempTasks[matchIndex].rate;
+                        } else {
+                            r._rate = taskRates[tName];
+                        }
+
+                        let cm = getCustomMonth(r._parsedDate);
+                        r._customMonthLabel = cm ? cm.label : 'לא ידוע';
+                        r._customMonthSortKey = cm ? cm.sortKey : 0;
+                        
+                        return true;
+                    });
+
+                    populateControls();
+                    calculateAndRender();
+                    revealDashboard();
+
+                    const now = new Date();
+                    lastUpdatedText.textContent = `ריענון אחרון: ${now.toLocaleTimeString('he-IL')} ${now.toLocaleDateString('he-IL')}`;
+                    statusText.textContent = `הקובץ המקומי מחובר ומסונכרן דו-כיוונית בהצלחה!`;
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+                    showToast('הקובץ נטען בהצלחה', 'success');
+                } catch (err) {
+                    statusText.textContent = "אירעה שגיאה בעת טעינת הקובץ.";
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+                    showToast('שגיאה בטעינת הקובץ: ' + err.message, 'error', 6000);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function syncFullDataToFile() {
+            if (globalFileHandle && globalFileHandle.createWritable) {
+                try {
+                    statusText.textContent = "שומר ומסנכרן שינויים בחזרה לקובץ המקור...";
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse";
+                    
+                    let exportDetails = rawData.map(r => ({
+                        "עובד": r["עובד"],
+                        "משימה": r["משימה"],
+                        "כמות": r["כמות"],
+                        "תאריך": r._dateOriginalStr || r["תאריך"], 
+                        "תעריף": r._rate,
+                        "הערה": r["הערה"]
+                    }));
+                    
+                    originalFullWorkbook.Sheets[targetDetailSheetName] = XLSX.utils.json_to_sheet(exportDetails);
+                    
+                    let exportTemp = [];
+                    rawData.forEach(r => {
+                        if (r._isUnpriced) {
+                            exportTemp.push({ "משימה": r["משימה"], "תעריף": r._rate, "עובד": r["עובד"], "תאריך": r["תאריך"], "הערה": r["הערה"] });
+                        }
+                    });
+
+                    if (!originalFullWorkbook.Sheets[targetTemporarySheetName]) {
+                        originalFullWorkbook.SheetNames.push(targetTemporarySheetName);
+                    }
+                    originalFullWorkbook.Sheets[targetTemporarySheetName] = XLSX.utils.json_to_sheet(exportTemp);
+                    
+                    const wopts = { bookType: 'xlsx', bookSST: false, type: 'array' };
+                    const html5BinaryBuffer = XLSX.write(originalFullWorkbook, wopts);
+                    
+                    const writableStream = await globalFileHandle.createWritable();
+                    await writableStream.write(html5BinaryBuffer);
+                    await writableStream.close();
+                    
+                    const now = new Date();
+                    lastUpdatedText.textContent = `נשמר לקובץ: ${now.toLocaleTimeString('he-IL')}`;
+                    statusText.textContent = "המשימות נשמרו וסונכרנו בהצלחה לקובץ האקסל המקורי!";
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+                } catch (writeError) {
+                    showToast("הדשבורד עודכן מקומית, אך לא ניתן היה לכתוב לקובץ. ודאו שהוא סגור בתוכנת Excel.", 'error', 6000);
+                    statusText.textContent = "עדכון מקומי בלבד - קובץ המקור נעול על ידי תוכנה אחרת.";
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+                }
+            }
+        }
+
+        window.handleManualTaskSubmit = async function(event) {
+            event.preventDefault();
+            if (!checkEditPermission()) return; 
+            const dName = formDriverSelect.value;
+            const tName = formTaskSelect.value;
+            const qty = parseFloat(document.getElementById('form-task-qty').value) || 1;
+            const dateInput = document.getElementById('form-task-date').value;
+            
+            if (!dName || !tName || !dateInput) return;
+
+            let parsedD = null;
+            if (dateInput && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                const [y, m, d] = dateInput.split('-').map(Number);
+                parsedD = new Date(y, m - 1, d);
+            }
+            if (!parsedD || isNaN(parsedD.getTime())) { showToast('תאריך לא תקין', 'error'); return; }
+            let dDateStr = formatDateToDDMMYYYY(parsedD);
+
+            if (Object.keys(taskPermissions).length > 0) {
+                const hasPermission = taskPermissions[dName] && taskPermissions[dName][tName];
+                if (!hasPermission) {
+                    document.getElementById('form-permission-warning-text').textContent = `"${dName}" לא זכאי לפרמיה מסוג "${tName}"`;
+                    const w = document.getElementById('form-permission-warning');
+                    w.classList.remove('hidden'); w.classList.add('flex');
+                    return;
+                }
+            }
+
+            let isUnpricedTask = (taskRates[tName] === 0 || taskRates[tName] === undefined);
+            let currentTempRate = 0;
+            let noteVal = formTaskNote.value.trim();
+
+            if (isUnpricedTask) {
+                if (!noteVal) { showToast("חובה להזין הערה עבור משימה ללא תמחור קבוע.", 'error'); formTaskNote.focus(); return; }
+                currentTempRate = parseFloat(formTaskCustomRate.value) || 0;
+            }
+            
+            let cm = getCustomMonth(parsedD);
+            let newTaskObj = {
+                "_id": Math.random().toString(36).substr(2, 9),
+                "עובד": dName, "משימה": tName, "כמות": qty, "תאריך": dDateStr, "הערה": noteVal,
+                "_dateOriginalStr": dDateStr, 
+                "_parsedDate": parsedD,
+                "_isUnpriced": isUnpricedTask,
+                "_rate": isUnpricedTask ? currentTempRate : (taskRates[tName] || 0),
+                "_savedRate": isUnpricedTask ? currentTempRate : (taskRates[tName] || 0),
+                "_customMonthLabel": cm ? cm.label : 'לא ידוע',
+                "_customMonthSortKey": cm ? cm.sortKey : 0
+            };
+            
+            rawData.push(newTaskObj);
+            await syncFullDataToFile();
+            populateControls();
+            calculateAndRender();
+            showToast(`המשימה נוספה ל${dName} ונשמרה בהצלחה`, 'success');
+            flashRow(newTaskObj._id);
+            
+            document.getElementById('form-task-qty').value = "1";
+            formTaskCustomRate.value = "0";
+            formTaskNote.value = "";
+            checkTaskRateRequirement();
+        }
+
+        window.openEditRow = function(id) {
+            let row = rawData.find(r => r._id === id);
+            if(!row) return;
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-driver').value = row["עובד"];
+            document.getElementById('edit-task').value = row["משימה"];
+            document.getElementById('edit-qty').value = row["כמות"];
+            document.getElementById('edit-note').value = row["הערה"];
+            document.getElementById('edit-rate').value = row._rate;
+            
+            let d = row._parsedDate;
+            if (d && !isNaN(d.getTime())) {
+                let y = d.getFullYear();
+                let m = String(d.getMonth() + 1).padStart(2, '0');
+                let day = String(d.getDate()).padStart(2, '0');
+                document.getElementById('edit-date').value = `${y}-${m}-${day}`;
+            } else {
+                document.getElementById('edit-date').value = "";
+            }
+            
+            document.getElementById('edit-rate').disabled = !row._isUnpriced;
+            editModal.classList.remove('hidden');
+        }
+
+        window.closeEditModal = function() {
+            editModal.classList.add('hidden');
+        }
+
+        window.saveEditedRow = async function() {
+            if (!checkEditPermission()) return; 
+            let id = document.getElementById('edit-id').value;
+            let row = rawData.find(r => r._id === id);
+            if(row) {
+                row["כמות"] = parseFloat(document.getElementById('edit-qty').value) || 1;
+                let dateInput = document.getElementById('edit-date').value; 
+                let pD = null;
+                if (dateInput && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    const [y, m, d] = dateInput.split('-').map(Number);
+                    pD = new Date(y, m - 1, d);
+                }
+                if (!pD || isNaN(pD.getTime())) pD = row._parsedDate; 
+                const newDateStr = formatDateToDDMMYYYY(pD);
+                row["תאריך"] = newDateStr;
+                row._dateOriginalStr = newDateStr;
+                row._parsedDate = pD;
+                row["הערה"] = document.getElementById('edit-note').value;
+                
+                if (row._isUnpriced) {
+                    let updatedRate = parseFloat(document.getElementById('edit-rate').value) || 0;
+                    row._rate = updatedRate;
+                    row._savedRate = updatedRate;
+                }
+                
+                let cm = getCustomMonth(pD);
+                row._customMonthLabel = cm ? cm.label : 'לא ידוע';
+                row._customMonthSortKey = cm ? cm.sortKey : 0;
+                
+                await syncFullDataToFile();
+                populateControls();
+                calculateAndRender();
+                closeEditModal();
+                showToast('השינויים נשמרו בהצלחה', 'success');
+                flashRow(id);
+            }
+        }
+
+        window.deleteRow = async function(id) {
+            if (!checkEditPermission()) return; 
+            const ok = await showConfirm('האם אתה בטוח שברצונך למחוק רשומה זו לחלוטין? לא ניתן לשחזר פעולה זו.');
+            if (ok) {
+                rawData = rawData.filter(r => r._id !== id);
+                await syncFullDataToFile();
+                populateControls();
+                calculateAndRender();
+                showToast('הרשומה נמחקה', 'success');
+            }
+        }
+
+        function populateControls() {
+            let uniqueEmployees = new Set();
+            let uniqueMonthsMap = new Map();
+            let uniqueTasks = new Set(Object.keys(taskRates));
+            
+            rawData.forEach(row => { 
+                if (row["עובד"]) uniqueEmployees.add(row["עובד"]); 
+                if (row["משימה"]) uniqueTasks.add(row["משימה"]);
+                if (row._customMonthLabel) uniqueMonthsMap.set(row._customMonthSortKey, row._customMonthLabel);
+            });
+            
+            let sortedDrivers = [...uniqueEmployees].sort();
+            
+            pickerDropdownContent.innerHTML = '';
+            if (sortedDrivers.length > 0) {
+                const actionsRow = document.createElement('div');
+                actionsRow.className = "flex justify-between items-center px-1.5 pb-1.5 mb-1 border-b border-gray-100 text-xs font-bold";
+                actionsRow.innerHTML = `<button type="button" class="text-blue-600 hover:underline">בחר הכל</button><button type="button" class="text-gray-400 hover:underline">נקה בחירה</button>`;
+                actionsRow.children[0].onclick = (e) => { e.stopPropagation(); selectedDrivers = [...sortedDrivers]; updateDropdownLabels(); populateControls(); calculateAndRender(); };
+                actionsRow.children[1].onclick = (e) => { e.stopPropagation(); selectedDrivers = []; activeTab = 'employees'; setTabStyle(btnEmp, [btnTask, btnRaw]); updateDropdownLabels(); populateControls(); calculateAndRender(); };
+                pickerDropdownContent.appendChild(actionsRow);
+            }
+            sortedDrivers.forEach(name => {
+                let code = employeeNumbers[name] ? ` [${employeeNumbers[name]}]` : '';
+                const div = document.createElement('div');
+                div.className = "flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded cursor-pointer text-sm font-medium";
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    let chk = document.getElementById('chk_driver_' + name.replace(/['"]/g, ''));
+                    if(chk) { chk.checked = !chk.checked; handleCheckboxFilter('driver', name, chk.checked); }
+                };
+                let isChecked = selectedDrivers.includes(name) ? 'checked' : '';
+                div.innerHTML = `
+                    <input type="checkbox" id="chk_driver_${name.replace(/['"]/g, '')}" value="${name}" ${isChecked} class="w-4 h-4 text-blue-600 rounded" onclick="e.stopPropagation(); handleCheckboxFilter('driver', '${name.replace(/['"]/g, '')}', this.checked)">
+                    <label class="w-full text-gray-700 cursor-pointer">${name}${code}</label>
+                `;
+                pickerDropdownContent.appendChild(div);
+            });
+
+            monthDropdownContent.innerHTML = '';
+            availableMonths = Array.from(uniqueMonthsMap.entries()).sort((a,b)=>a[0]-b[0]);
+            
+            if (selectedMonths.length === 0 && availableMonths.length > 0) {
+                selectedMonths = [availableMonths[availableMonths.length - 1][0]];
+            }
+
+            if (availableMonths.length > 0) {
+                const mActionsRow = document.createElement('div');
+                mActionsRow.className = "flex justify-between items-center px-1.5 pb-1.5 mb-1 border-b border-gray-100 text-xs font-bold";
+                mActionsRow.innerHTML = `<button type="button" class="text-blue-600 hover:underline">בחר הכל</button><button type="button" class="text-gray-400 hover:underline">נקה בחירה</button>`;
+                mActionsRow.children[0].onclick = (e) => { e.stopPropagation(); selectedMonths = availableMonths.map(m => m[0]); populateControls(); calculateAndRender(); };
+                mActionsRow.children[1].onclick = (e) => { e.stopPropagation(); selectedMonths = []; populateControls(); calculateAndRender(); };
+                monthDropdownContent.appendChild(mActionsRow);
+            }
+            availableMonths.forEach(([sortKey, label]) => {
+                const div = document.createElement('div');
+                div.className = "flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded cursor-pointer text-sm font-medium";
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    let chk = document.getElementById('chk_month_' + sortKey);
+                    if(chk) { chk.checked = !chk.checked; handleCheckboxFilter('month', sortKey, chk.checked); }
+                };
+                let isChecked = selectedMonths.includes(sortKey) ? 'checked' : '';
+                div.innerHTML = `
+                    <input type="checkbox" id="chk_month_${sortKey}" value="${sortKey}" ${isChecked} class="w-4 h-4 text-blue-600 rounded" onclick="e.stopPropagation(); handleCheckboxFilter('month', ${sortKey}, this.checked)">
+                    <label class="w-full text-gray-700 cursor-pointer">${label}</label>
+                `;
+                monthDropdownContent.appendChild(div);
+            });
+
+            updateDropdownLabels();
+
+            formDriverSelect.innerHTML = '';
+            let formDriversArray = allowedFormDrivers.size > 0 ? [...allowedFormDrivers] : sortedDrivers;
+            formDriversArray.sort().forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name; opt.textContent = name;
+                formDriverSelect.appendChild(opt);
+            });
+
+            if (formTaskSelect.options.length === 0 || formTaskSelect.options.length !== uniqueTasks.size) {
+                formTaskSelect.innerHTML = '';
+                [...uniqueTasks].sort().forEach(tName => {
+                    const opt = document.createElement('option');
+                    opt.value = tName; 
+                    let rateLabel = (taskRates[tName] === 0 || taskRates[tName] === undefined) ? "ללא תעריף מוגדר - הזנה ידנית" : `₪${taskRates[tName]}`;
+                    opt.textContent = `${tName} (${rateLabel})`;
+                    formTaskSelect.appendChild(opt);
+                });
+                checkTaskRateRequirement();
+            }
+        }
+
+        window.handleCheckboxFilter = function(type, val, isChecked) {
+            let arr = type === 'driver' ? selectedDrivers : selectedMonths;
+            let realVal = type === 'driver' ? (Object.keys(employeeNumbers).find(k => k.replace(/['"]/g, '') === val) || val) : val;
+            
+            if (isChecked) { if (!arr.includes(realVal)) arr.push(realVal); }
+            else { 
+                if (type === 'driver') selectedDrivers = selectedDrivers.filter(d => d !== realVal);
+                else selectedMonths = selectedMonths.filter(d => d !== realVal);
+            }
+
+            if (type === 'driver' && selectedDrivers.length === 0) {
+                activeTab = 'employees';
+                setTabStyle(btnEmp, [btnTask, btnRaw]);
+            }
+
+            updateDropdownLabels();
+            calculateAndRender();
+        }
+
+        function updateDropdownLabels() {
+            if (selectedDrivers.length === 0) pickerDropdownLabel.textContent = "כל העובדים";
+            else if (selectedDrivers.length === 1) pickerDropdownLabel.textContent = `עובד נבחר: ${selectedDrivers[0]}`;
+            else pickerDropdownLabel.textContent = `${selectedDrivers.length} עובדים נבחרו`;
+
+            if (selectedMonths.length === 0) monthDropdownLabel.textContent = "כל החודשים";
+            else {
+                let sortedSelected = [...selectedMonths].sort((a,b)=>a-b);
+                let firstLabel = availableMonths.find(m => m[0] === sortedSelected[0])?.[1] || "";
+                if (selectedMonths.length === 1) monthDropdownLabel.textContent = firstLabel;
+                else monthDropdownLabel.textContent = `${firstLabel} ועוד ${selectedMonths.length - 1}`;
+            }
+        }
+
+        window.clearEmployeeFilterOnly = function() {
+            selectedDrivers = [];
+            activeTab = 'employees';
+            setTabStyle(btnEmp, [btnTask, btnRaw]);
+            updateDropdownLabels();
+            populateControls();
+            calculateAndRender();
+        }
+
+        window.clearAllFilters = function() {
+            selectedDrivers = [];
+            selectedMonths = availableMonths.length > 0 ? [availableMonths[availableMonths.length - 1][0]] : [];
+            activeTab = 'employees';
+            setTabStyle(btnEmp, [btnTask, btnRaw]);
+            updateDropdownLabels();
+            populateControls();
+            calculateAndRender();
+        }
+
+        function getPreviousMonthSortKey(currentSortKey) {
+            let y = Math.floor(currentSortKey / 100);
+            let m = currentSortKey % 100;
+            if (m === 0) { return (y - 1) * 100 + 11; }
+            return y * 100 + (m - 1);
+        }
+
+        function calculateAndRender() {
+            const driverPremiumCard = document.getElementById('driver-premium-card');
+            
+            let displayTitleSuffix = "";
+            if (selectedMonths.length > 0) {
+                let sortedSelected = [...selectedMonths].sort((a,b)=>a-b);
+                let labels = sortedSelected.map(sk => availableMonths.find(m => m[0] === sk)?.[1] || "");
+                displayTitleSuffix = ` - ${labels.join(', ')}`;
+            }
+
+            if (selectedDrivers.length > 0) {
+                driverPremiumCard.classList.remove('hidden');
+                document.getElementById('card-driver-title').textContent = selectedDrivers.length === 1 ? `פירוט פרמיות - ${selectedDrivers[0]}${displayTitleSuffix}` : `פירוט פרמיות מאוחד - ${selectedDrivers.length} עובדים${displayTitleSuffix}`;
+                let codeText = selectedDrivers.length === 1 ? (employeeNumbers[selectedDrivers[0]] || 'לא נמצא מזהה עובד') : 'קבוצה מורחבת';
+                document.getElementById('card-driver-subtitle').textContent = `מספר עובד: ${codeText}`;
+            } else {
+                driverPremiumCard.classList.add('hidden');
+            }
+
+            let filteredData = [];
+            let allMonthsDataForChart = {}; 
+
+            rawData.forEach(row => {
+                row._payout = row["כמות"] * (row._rate || 0);
+                
+                if (selectedDrivers.length === 0 || selectedDrivers.includes(row["עובד"])) {
+                    if (!allMonthsDataForChart[row._customMonthSortKey]) {
+                        allMonthsDataForChart[row._customMonthSortKey] = { label: row._customMonthLabel, total: 0 };
+                    }
+                    allMonthsDataForChart[row._customMonthSortKey].total += row._payout;
+                }
+
+                if (selectedMonths.length > 0 && !selectedMonths.includes(row._customMonthSortKey)) return;
+                if (selectedDrivers.length > 0 && !selectedDrivers.includes(row["עובד"])) return;
+                
+                filteredData.push(row);
+            });
+
+            let minSelectedMonthSortKey = null;
+            if (selectedMonths.length > 0) {
+                minSelectedMonthSortKey = Math.min(...selectedMonths);
+            }
+            let prevMonthSortKey = minSelectedMonthSortKey ? getPreviousMonthSortKey(minSelectedMonthSortKey) : null;
+            
+            let employeeData = {};
+            let taskData = {};
+
+            filteredData.forEach(row => {
+                let empKey = row["עובד"];
+                if (!employeeData[empKey]) {
+                    employeeData[empKey] = { name: empKey, totalPayout: 0, taskCount: 0, prevPayout: 0, tasks: {} };
+                }
+                employeeData[empKey].totalPayout += row._payout;
+                employeeData[empKey].taskCount += row["כמות"];
+
+                let taskKey = row["משימה"];
+                let groupingKey = row._isUnpriced ? `UNPRICED_${taskKey}_${row["תאריך"]}_${row["הערה"]}_${row._id}` : taskKey;
+
+                if (!employeeData[empKey].tasks[groupingKey]) {
+                    employeeData[empKey].tasks[groupingKey] = { name: taskKey, qty: 0, payout: 0, isUnpriced: row._isUnpriced, note: row["הערה"], rate: row._rate };
+                }
+                employeeData[empKey].tasks[groupingKey].qty += row["כמות"];
+                employeeData[empKey].tasks[groupingKey].payout += row._payout;
+
+                if (!taskData[groupingKey]) {
+                    taskData[groupingKey] = { name: taskKey, count: 0, totalPayout: 0, isUnpriced: row._isUnpriced, note: row["הערה"], rate: row._rate };
+                }
+                taskData[groupingKey].count += row["כמות"];
+                taskData[groupingKey].totalPayout += row._payout;
+            });
+
+            if (prevMonthSortKey) {
+                rawData.forEach(row => {
+                    if (row._customMonthSortKey === prevMonthSortKey) {
+                        let empKey = row["עובד"];
+                        if (employeeData[empKey]) {
+                            employeeData[empKey].prevPayout += (row["כמות"] * (row._rate || 0));
+                        }
+                    }
+                });
+            }
+
+            if (selectedDrivers.length > 0) {
+                let cardPayout = 0, cardTasks = 0, cardAggregatedTasks = {};
+                Object.values(employeeData).forEach(emp => {
+                    cardPayout += emp.totalPayout;
+                    cardTasks += emp.taskCount;
+                    Object.entries(emp.tasks).forEach(([gKey, tData]) => {
+                        if (!cardAggregatedTasks[gKey]) cardAggregatedTasks[gKey] = { ...tData };
+                        else {
+                            cardAggregatedTasks[gKey].qty += tData.qty;
+                            cardAggregatedTasks[gKey].payout += tData.payout;
+                        }
+                    });
+                });
+
+                document.getElementById('card-driver-premium').textContent = '₪' + cardPayout.toLocaleString('he-IL', {maximumFractionDigits: 1});
+                document.getElementById('card-driver-tasks').textContent = cardTasks.toLocaleString('he-IL');
+                document.getElementById('card-driver-uniq').textContent = Object.keys(cardAggregatedTasks).length;
+
+                const cardRowsBody = document.getElementById('card-driver-rows');
+                cardRowsBody.innerHTML = '';
+                Object.keys(cardAggregatedTasks).forEach(gKey => {
+                    let tData = cardAggregatedTasks[gKey];
+                    let rateText = tData.isUnpriced ? (tData.note || 'ללא הערה') : `₪${tData.rate.toLocaleString('he-IL')}`;
+                    let rowColor = tData.payout < 0 ? 'text-red-600' : 'text-green-600';
+                    let formattedPayout = (tData.payout < 0 ? '-' : '') + '₪' + Math.abs(tData.payout).toLocaleString('he-IL', {maximumFractionDigits: 1});
+
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-blue-50/30 transition-all';
+                    row.innerHTML = `<td class="px-6 py-3.5 font-semibold text-gray-800">${tData.name}</td><td class="px-6 py-3.5 font-medium text-gray-600">${rateText}</td><td class="px-6 py-3.5">${tData.qty.toLocaleString('he-IL')}</td><td class="px-6 py-3.5 font-bold ${rowColor}">${formattedPayout}</td>`;
+                    cardRowsBody.appendChild(row);
+                });
+            }
+
+            let globalTotalPayout = filteredData.reduce((sum, r) => sum + r._payout, 0);
+            let globalColor = globalTotalPayout < 0 ? 'text-red-600' : 'text-gray-800';
+            document.getElementById('stat-total-payout').className = `text-2xl font-bold mt-1 ${globalColor}`;
+            document.getElementById('stat-total-payout').textContent = (globalTotalPayout < 0 ? '-' : '') + '₪' + Math.abs(globalTotalPayout).toLocaleString('he-IL', {maximumFractionDigits: 0});
+            document.getElementById('stat-total-tasks').textContent = filteredData.reduce((sum, r) => sum + r["כמות"], 0).toLocaleString('he-IL');
+            const totalActiveGlobalCount = Object.keys(employeeData).length;
+            document.getElementById('stat-total-employees').textContent = totalActiveGlobalCount;
+            document.getElementById('stat-avg-payout').textContent = '₪' + (totalActiveGlobalCount > 0 ? (globalTotalPayout / totalActiveGlobalCount) : 0).toLocaleString('he-IL', {maximumFractionDigits: 0});
+
+            renderCharts(employeeData, taskData, allMonthsDataForChart);
+            renderTable(employeeData, taskData, filteredData, prevMonthSortKey);
+        }
+
+        window.setMonthlyChartType = function(type) {
+            monthlyChartType = type;
+            const barBtn = document.getElementById('chart-monthly-bar-btn');
+            const lineBtn = document.getElementById('chart-monthly-line-btn');
+            if (type === 'bar') {
+                barBtn.className = "px-3 py-1 rounded-lg bg-purple-600 text-white font-bold transition-colors";
+                lineBtn.className = "px-3 py-1 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors";
+            } else {
+                lineBtn.className = "px-3 py-1 rounded-lg bg-purple-600 text-white font-bold transition-colors";
+                barBtn.className = "px-3 py-1 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors";
+            }
+            if (lastRenderArgs) renderCharts(...lastRenderArgs);
+        }
+
+        function renderCharts(employeeData, taskData, allMonthsData) {
+            lastRenderArgs = [employeeData, taskData, allMonthsData];
+
+            const empNames = Object.keys(employeeData);
+            const empPayouts = empNames.map(name => employeeData[name].totalPayout);
+            const empTasks = empNames.map(name => employeeData[name].taskCount);
+
+            if (chartEmployeesInstance) chartEmployeesInstance.destroy();
+            chartEmployeesInstance = new Chart(document.getElementById('chart-employees').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: empNames,
+                    datasets: [
+                        { label: 'סך הכל פרמיה (₪)', data: empPayouts, backgroundColor: 'rgba(16, 185, 129, 0.85)', borderColor: 'rgb(16, 185, 129)', borderWidth: 1, yAxisID: 'y' },
+                        { label: 'כמות משימות', data: empTasks, backgroundColor: 'rgba(59, 130, 246, 0.35)', borderColor: 'rgb(59, 130, 246)', borderWidth: 1.5, type: 'line', yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, rtl: true,
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'right', ticks: { callback: v => '₪' + v.toLocaleString('he-IL') } },
+                        y1: { type: 'linear', display: true, position: 'left', grid: { drawOnChartArea: false } }
+                    },
+                    plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.yAxisID === 'y' ? '₪' + ctx.parsed.y.toLocaleString('he-IL') : ctx.parsed.y } } }
+                }
+            });
+
+            const taskNames = Object.values(taskData).map(t => t.isUnpriced ? `${t.name}` : t.name);
+            const taskQuantities = Object.values(taskData).map(t => t.count);
+            const chartColors = [
+                'rgba(16, 185, 129, 0.85)',   
+                'rgba(59, 130, 246, 0.85)',   
+                'rgba(168, 85, 247, 0.85)',   
+                'rgba(236, 72, 153, 0.85)',   
+                'rgba(245, 158, 11, 0.85)',   
+                'rgba(14, 165, 233, 0.85)',   
+                'rgba(34, 197, 94, 0.85)',    
+                'rgba(239, 68, 68, 0.85)',    
+                'rgba(251, 146, 60, 0.85)',   
+                'rgba(99, 102, 241, 0.85)'    
+            ];
+            const taskChartColors = taskQuantities.map((_, i) => chartColors[i % chartColors.length]);
+
+            if (chartTasksInstance) chartTasksInstance.destroy();
+            chartTasksInstance = new Chart(document.getElementById('chart-tasks').getContext('2d'), {
+                type: 'doughnut',
+                data: { 
+                    labels: taskNames, 
+                    datasets: [{ 
+                        data: taskQuantities, 
+                        backgroundColor: taskChartColors,
+                        borderWidth: 2, 
+                        borderColor: '#fff' 
+                    }] 
+                },
+                options: { responsive: true, maintainAspectRatio: false, rtl: true, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } } } }
+            });
+
+            const sortedMonths = Object.keys(allMonthsData).sort((a,b)=>a-b);
+            const mLabels = sortedMonths.map(k => allMonthsData[k].label);
+            const mData = sortedMonths.map(k => allMonthsData[k].total);
+
+            if (chartMonthsCompareInstance) chartMonthsCompareInstance.destroy();
+            if (monthlyChartType === 'bar') {
+                chartMonthsCompareInstance = new Chart(document.getElementById('chart-months-compare').getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: mLabels,
+                        datasets: [{
+                            label: 'סה"כ פרמיה חודשית (₪)',
+                            data: mData,
+                            backgroundColor: mData.map((v, i) => i === mData.length - 1 ? 'rgba(147,51,234,0.85)' : 'rgba(147,51,234,0.45)'),
+                            borderColor: 'rgb(147,51,234)',
+                            borderWidth: 1,
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, rtl: true,
+                        scales: { y: { beginAtZero: true, ticks: { callback: v => '₪' + v.toLocaleString('he-IL') } } },
+                        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '₪' + ctx.parsed.y.toLocaleString('he-IL') } } }
+                    }
+                });
+            } else {
+                chartMonthsCompareInstance = new Chart(document.getElementById('chart-months-compare').getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: mLabels,
+                        datasets: [{ label: 'סה"כ פרמיה חודשית', data: mData, fill: true, backgroundColor: 'rgba(147,51,234,0.08)', borderColor: 'rgb(147,51,234)', tension: 0.35, borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: 'rgb(147,51,234)' }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, rtl: true,
+                        scales: { y: { beginAtZero: true, ticks: { callback: v => '₪' + v.toLocaleString('he-IL') } } },
+                        plugins: { tooltip: { callbacks: { label: ctx => '₪' + ctx.parsed.y.toLocaleString('he-IL') } } }
+                    }
+                });
+            }
+        }
+
+        let _lastFilteredData = [];
+
+        function renderTable(employeeData, taskData, filteredData, prevMonthSortKey) {
+            _lastFilteredData = filteredData; 
+            const header = document.getElementById('table-header');
+            const body = document.getElementById('table-body');
+            const query = document.getElementById('table-search').value.toLowerCase();
+            const rowCountEl = document.getElementById('table-row-count');
+            const tableEmptyState = document.getElementById('table-empty-state');
+            header.innerHTML = ''; body.innerHTML = '';
+            tableEmptyState.classList.add('hidden');
+
+            let prevMonthLabel = "חודש קודם";
+            if (prevMonthSortKey) {
+                let found = availableMonths.find(m => m[0] === prevMonthSortKey);
+                if (found) prevMonthLabel = found[1];
+            }
+
+            const thBase = "px-5 py-3.5 text-xs font-bold uppercase tracking-wide text-gray-500 border-b border-gray-100";
+            const thAccent = "px-5 py-3.5 text-xs font-bold uppercase tracking-wide border-b border-purple-100 bg-purple-50 text-purple-700";
+
+            if (activeTab === 'employees') {
+                exportExcelBtn.classList.remove('hidden');
+                header.innerHTML = `<th class="${thBase}">מספר עובד</th><th class="${thBase}">שם עובד</th><th class="${thBase}">משימות</th><th class="${thBase}">פרמיה (₪)</th><th class="${thAccent}">פרמיה - ${prevMonthLabel} (₪)</th><th class="${thBase}">משימות בוצעו</th>`;
+                const empRows = Object.values(employeeData).filter(e => e.name.toLowerCase().includes(query)).sort((a,b)=>b.totalPayout-a.totalPayout);
+                rowCountEl.textContent = `${empRows.length} עובדים`;
+
+                const dupSet = new Set();
+                const dupData = {}; 
+                const dayTaskMap = {}; 
+                filteredData.forEach(r => {
+                    if (r["משימה"] === "הזמנות בוקר") return; 
+                    const key = `${r["עובד"]}|${r["משימה"]}|${r["תאריך"]}`;
+                    if (!dayTaskMap[key]) dayTaskMap[key] = [];
+                    dayTaskMap[key].push(r._id);
+                });
+                Object.entries(dayTaskMap).forEach(([key, ids]) => {
+                    if (ids.length > 1) {
+                        ids.forEach(id => dupSet.add(id));
+                        const [emp] = key.split('|');
+                        if (!dupData[emp]) dupData[emp] = [];
+                        dupData[emp].push({ key, ids });
+                    }
+                });
+
+                empRows.forEach(emp => {
+                    let taskStrings = Object.values(emp.tasks)
+                        .sort((a, b) => b.qty - a.qty)
+                        .map(t => `<span class="inline-block bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 text-xs mr-1 mb-1">${t.name} <b>${t.qty}</b></span>`)
+                        .join('');
+                    let formattedPayout = (emp.totalPayout < 0 ? '-' : '') + '₪' + Math.abs(emp.totalPayout).toLocaleString('he-IL');
+                    let rowColor = emp.totalPayout < 0 ? 'text-red-600' : 'text-emerald-600';
+                    let prevFormatted = (emp.prevPayout < 0 ? '-' : '') + '₪' + Math.abs(emp.prevPayout).toLocaleString('he-IL');
+
+                    const hasDups = !!dupData[emp.name];
+                    const safeEmpName = emp.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+                    const dupBtn = hasDups
+                        ? `<button onclick="event.stopPropagation();openDupModal('${safeEmpName}',_lastFilteredData)" title="נמצאו כפילויות – לחץ לפרטים" class="inline-flex items-center gap-1 bg-amber-100 text-amber-700 border border-amber-300 text-xs font-bold px-2 py-0.5 rounded-full hover:bg-amber-200 transition-colors mr-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i>${dupData[emp.name].length} כפולות</button>`
+                        : '';
+
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-blue-50/40 transition-colors cursor-pointer border-b border-gray-50 last:border-0';
+                    row.setAttribute('onclick', `handleCheckboxFilter('driver', '${safeEmpName}', true)`);
+                    row.innerHTML = `
+                        <td class="px-5 py-3.5 font-mono text-xs font-semibold text-gray-500">${employeeNumbers[emp.name]||'—'}</td>
+                        <td class="px-5 py-3.5 font-bold text-blue-700">
+                            ${dupBtn}<span class="underline decoration-dotted">${emp.name}</span>
+                        </td>
+                        <td class="px-5 py-3.5 text-gray-700">${emp.taskCount}</td>
+                        <td class="px-5 py-3.5 font-bold ${rowColor}">${formattedPayout}</td>
+                        <td class="px-5 py-3.5 font-bold text-purple-700 bg-purple-50/30">${prevFormatted}</td>
+                        <td class="px-5 py-3 max-w-xs">${taskStrings || '—'}</td>`;
+                    body.appendChild(row);
+                });
+                if (empRows.length === 0) tableEmptyState.classList.remove('hidden');
+            } else if (activeTab === 'tasks') {
+                exportExcelBtn.classList.add('hidden');
+                header.innerHTML = `<th class="${thBase}">שם משימה</th><th class="${thBase}">תעריף / הערה</th><th class="${thBase}">כמות</th><th class="${thBase}">סה"כ עלות (₪)</th>`;
+                const taskRows = Object.values(taskData).filter(t => t.name.toLowerCase().includes(query) || (t.note && t.note.toLowerCase().includes(query))).sort((a,b)=>b.totalPayout-a.totalPayout);
+                rowCountEl.textContent = `${taskRows.length} משימות`;
+                taskRows.forEach(tData => {
+                    let rateText = tData.isUnpriced ? `<span class="text-amber-600 text-xs font-bold">${tData.note || 'ללא הערה'}</span>` : `<span class="text-gray-700">₪${tData.rate.toLocaleString('he-IL')}</span>`;
+                    let formattedPayout = (tData.totalPayout < 0 ? '-' : '') + '₪' + Math.abs(tData.totalPayout).toLocaleString('he-IL');
+                    let rowColor = tData.totalPayout < 0 ? 'text-red-600' : 'text-emerald-600';
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50 border-b border-gray-50 last:border-0';
+                    row.innerHTML = `<td class="px-5 py-3.5 font-semibold text-gray-800">${tData.name}</td><td class="px-5 py-3.5">${rateText}</td><td class="px-5 py-3.5 text-gray-700">${tData.count}</td><td class="px-5 py-3.5 font-bold ${rowColor}">${formattedPayout}</td>`;
+                    body.appendChild(row);
+                });
+                if (taskRows.length === 0) tableEmptyState.classList.remove('hidden');
+            } else if (activeTab === 'raw') {
+                exportExcelBtn.classList.add('hidden');
+                header.innerHTML = `<th class="${thBase}">תאריך</th><th class="${thBase}">חודש</th><th class="${thBase}">נהג</th><th class="${thBase}">משימה</th><th class="${thBase}">הערה</th><th class="${thBase}">כמות</th><th class="${thBase}">פרמיה (₪)</th><th class="${thBase} text-center">פעולות</th>`;
+                const rawRows = filteredData.filter(r => r["עובד"].toLowerCase().includes(query) || r["משימה"].toLowerCase().includes(query));
+                rowCountEl.textContent = `${rawRows.length} רשומות`;
+                rawRows.forEach(r => {
+                    let formattedPayout = (r._payout < 0 ? '-' : '') + '₪' + Math.abs(r._payout).toLocaleString('he-IL');
+                    let rowColor = r._payout < 0 ? 'text-red-600' : 'text-emerald-600';
+                    const row = document.createElement('tr');
+                    row.className = "group hover:bg-gray-50 border-b border-gray-50 last:border-0";
+                    row.setAttribute('data-row-id', r._id);
+                    row.innerHTML = `
+                        <td class="px-5 py-3.5 text-xs text-gray-400 font-mono">${r["תאריך"]}</td>
+                        <td class="px-5 py-3.5"><span class="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">${r._customMonthLabel}</span></td>
+                        <td class="px-5 py-3.5 font-semibold text-gray-800">${r["עובד"]}</td>
+                        <td class="px-5 py-3.5 text-gray-700">${r["משימה"]}</td>
+                        <td class="px-5 py-3.5 text-xs text-gray-400 max-w-[120px] truncate" title="${r["הערה"] || ''}">${r["הערה"] || '—'}</td>
+                        <td class="px-5 py-3.5 text-gray-700">${r["כמות"]}</td>
+                        <td class="px-5 py-3.5 font-bold ${rowColor}">${formattedPayout}</td>
+                        <td class="px-5 py-3.5">
+                            <div class="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                ${isAdmin() ? `<button onclick="openEditRow('${r._id}')" title="עריכה" class="text-blue-500 hover:bg-blue-100 p-1.5 rounded-lg transition-colors"><i data-lucide="edit-2" class="w-3.5 h-3.5"></i></button>
+                                <button onclick="deleteRow('${r._id}')" title="מחיקה" class="text-red-500 hover:bg-red-100 p-1.5 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>` : '<span class="text-xs text-gray-400 font-bold">רק קריאה</span>'}
+                            </div>
+                        </td>
+                    `;
+                    body.appendChild(row);
+                });
+                if (rawRows.length === 0) tableEmptyState.classList.remove('hidden');
+            }
+            lucide.createIcons();
+        }
+
+        window.exportDriversSummaryToExcel = function() {
+            if(activeTab !== 'employees') return;
+            let exportData = [];
+            let rows = document.getElementById('table-body').querySelectorAll('tr');
+            rows.forEach(tr => {
+                let tds = tr.querySelectorAll('td');
+                if(tds.length >= 5) {
+                    exportData.push({
+                        "מספר עובד": tds[0].innerText,
+                        "שם עובד": tds[1].innerText,
+                        "כמות משימות": tds[2].innerText,
+                        "פרמיה מצטברת (₪)": tds[3].innerText.replace(/[^\d.-]/g, ''),
+                        "פרמיה חודש קודם (₪)": tds[4].innerText.replace(/[^\d.-]/g, '')
+                    });
+                }
+            });
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "סיכום פרמיות");
+            XLSX.writeFile(workbook, "סיכום_פרמיות_עובדים.xlsx");
+        }
+
+        let _dupFilteredData = [];
+
+        window.openDupModal = function(empName, fd) {
+            _dupFilteredData = fd || [];
+            const list = document.getElementById('dup-modal-list');
+            list.innerHTML = '';
+
+            const dayTaskMap = {};
+            _dupFilteredData.filter(r => r["עובד"] === empName && r["משימה"] !== "הזמנות בוקר").forEach(r => {
+                const key = `${r["משימה"]}|${r["תאריך"]}`;
+                if (!dayTaskMap[key]) dayTaskMap[key] = [];
+                dayTaskMap[key].push(r);
+            });
+
+            const dupGroups = Object.entries(dayTaskMap).filter(([, rows]) => rows.length > 1);
+            if (dupGroups.length === 0) { closeDupModal(); return; }
+
+            dupGroups.forEach(([key, rows]) => {
+                const [taskName, date] = key.split('|');
+                const groupDiv = document.createElement('div');
+                groupDiv.className = "mb-4 border border-amber-200 rounded-xl overflow-hidden";
+                groupDiv.innerHTML = `<div class="bg-amber-50 px-4 py-2 text-xs font-bold text-amber-800 flex items-center gap-2"><i data-lucide="calendar" class="w-3.5 h-3.5"></i>${date} — ${taskName} (${rows.length} רשומות)</div>`;
+                rows.forEach(r => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = "flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 border-t border-amber-100";
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox'; cb.value = r._id;
+                    cb.className = "w-4 h-4 text-red-500 rounded";
+                    cb.addEventListener('change', updateDupSelection);
+                    const label = document.createElement('label');
+                    const payout = (r._payout !== undefined ? r._payout : r["כמות"] * (r._rate || 0));
+                    label.innerHTML = `<span class="font-semibold text-sm text-gray-800">כמות: ${r["כמות"]}</span> <span class="text-gray-400 text-xs mx-2">|</span> <span class="text-xs text-gray-500">תעריף: ₪${(r._rate||0).toLocaleString('he-IL')}</span> <span class="text-gray-400 text-xs mx-2">|</span> <span class="text-xs font-bold text-emerald-600">₪${payout.toLocaleString('he-IL')}</span>${r["הערה"] ? `<span class="text-gray-400 text-xs mr-2"> | הערה: ${r["הערה"]}</span>` : ''}`;
+                    label.className = "flex-1 cursor-pointer text-sm";
+                    label.onclick = () => { cb.checked = !cb.checked; updateDupSelection(); };
+                    itemDiv.appendChild(cb);
+                    itemDiv.appendChild(label);
+                    groupDiv.appendChild(itemDiv);
+                });
+                list.appendChild(groupDiv);
+            });
+
+            document.getElementById('dup-modal').classList.remove('hidden');
+            updateDupSelection();
+            lucide.createIcons();
+        }
+
+        function updateDupSelection() {
+            const checked = document.querySelectorAll('#dup-modal-list input[type=checkbox]:checked');
+            document.getElementById('dup-selected-count').textContent = `${checked.length} נבחרו`;
+            document.getElementById('dup-delete-btn').disabled = checked.length === 0;
+        }
+
+        window.closeDupModal = function() {
+            document.getElementById('dup-modal').classList.add('hidden');
+        }
+
+        window.deleteSelectedDups = async function() {
+            if (!checkEditPermission()) return; 
+            const checked = [...document.querySelectorAll('#dup-modal-list input[type=checkbox]:checked')];
+            if (checked.length === 0) return;
+            const ok = await showConfirm(`למחוק ${checked.length} רשומות כפולות?`);
+            if (!ok) return;
+            const idsToDelete = new Set(checked.map(cb => cb.value));
+            rawData = rawData.filter(r => !idsToDelete.has(r._id));
+            await syncFullDataToFile();
+            populateControls();
+            calculateAndRender();
+            closeDupModal();
+            showToast(`${checked.length} רשומות נמחקו בהצלחה`, 'success');
+        }
+
+        const btnEmp = document.getElementById('tab-btn-employees');
+        const btnTask = document.getElementById('tab-btn-tasks');
+        const btnRaw = document.getElementById('tab-btn-raw');
+        function setTabStyle(activeBtn, inactiveBtns) {
+            activeBtn.className = "px-4 py-2 text-sm font-bold rounded-lg bg-blue-600 text-white shadow-sm transition-colors";
+            inactiveBtns.forEach(btn => btn.className = "px-4 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100 transition-colors");
+        }
+        btnEmp.addEventListener('click', () => { activeTab = 'employees'; setTabStyle(btnEmp, [btnTask, btnRaw]); calculateAndRender(); });
+        btnTask.addEventListener('click', () => { activeTab = 'tasks'; setTabStyle(btnTask, [btnEmp, btnRaw]); calculateAndRender(); });
+        btnRaw.addEventListener('click', () => { activeTab = 'raw'; setTabStyle(btnRaw, [btnEmp, btnTask]); calculateAndRender(); });
+        document.getElementById('table-search').addEventListener('input', () => calculateAndRender());
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                closeDupModal();
+                editModal.classList.add('hidden');
+                confirmModal.classList.add('hidden');
+            }
+        });
+
+        lucide.createIcons();
+    </script>
+</body>
+</html>
